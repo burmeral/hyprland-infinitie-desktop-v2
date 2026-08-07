@@ -317,7 +317,7 @@ def move_active_window(direction):
 
 
 def classify_device(path):
-    """Devuelve 'mouse', 'keyboard' o None segun las capacidades reales del dispositivo,
+    """Devuelve 'mouse', 'keyboard', 'touchpad', o None segun las capacidades reales del dispositivo,
     sin importar el nombre/marca. Esto es lo que permite que funcione con cualquier
     mouse o teclado (alambrico, inalambrico, el que sea)."""
     try:
@@ -327,9 +327,9 @@ def classify_device(path):
     except Exception:
         return None
 
-    keys = set(caps.get(ecodes.EV_KEY, []))
-    rels = set(caps.get(ecodes.EV_REL, []))
-    abss = set(caps.get(ecodes.EV_ABS, []))
+    keys = {code for code, *_ in caps.get(ecodes.EV_KEY, [])}
+    rels = {code for code, *_ in caps.get(ecodes.EV_REL, [])}
+    abss = {code for code, *_ in caps.get(ecodes.EV_ABS, [])}
 
     is_mouse = (ecodes.REL_X in rels and ecodes.REL_Y in rels and ecodes.BTN_LEFT in keys)
     if is_mouse:
