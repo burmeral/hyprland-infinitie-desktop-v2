@@ -329,10 +329,21 @@ def classify_device(path):
 
     keys = set(caps.get(ecodes.EV_KEY, []))
     rels = set(caps.get(ecodes.EV_REL, []))
+    abss = set(caps.get(ecodes.EV_ABS, []))
 
     is_mouse = (ecodes.REL_X in rels and ecodes.REL_Y in rels and ecodes.BTN_LEFT in keys)
     if is_mouse:
         return 'mouse'
+  
+    is_touchpad = (
+        ecodes.ABS_X in abss and ecodes.ABS_Y in abss
+        and ecodes.BTN_TOUCH in keys
+        and ecodes.BTN_LEFT in keys
+        and ecodes.REL_X not in rels  # exclude mice that also report ABS
+    )
+  
+    if is_touchpad:
+        return 'touchpad'
 
     # Un teclado "real" tiene el rango completo de teclas alfanumericas y las teclas Meta,
     # esto excluye las interfaces auxiliares (Consumer Control, System Control) que
@@ -341,6 +352,7 @@ def classify_device(path):
         ecodes.KEY_A in keys and ecodes.KEY_Z in keys and ecodes.KEY_LEFTSHIFT in keys
         and (ecodes.KEY_LEFTMETA in keys or ecodes.KEY_RIGHTMETA in keys)
     )
+  
     if is_keyboard:
         return 'keyboard'
 
@@ -348,14 +360,16 @@ def classify_device(path):
 
 
 def scan_devices():
-    keyboards, mice = [], []
+    keyboards, mice, touchpads = [], [], []
     for path in list_devices():
         kind = classify_device(path)
         if kind == 'mouse':
             mice.append(path)
         elif kind == 'keyboard':
             keyboards.append(path)
-    return keyboards, mice
+        elif kind == 'touchpad':
+            touchpads.append(path)
+    return keyboards, mice, touchpads
 
 
 
@@ -471,6 +485,95 @@ def mouse_reader_device(path):
         acc_x = 0.0
         acc_y = 0.0
 
+def touchpad_reader_device(path):
+    """Read one touchpad and feed deltas into acc_x/acc_y for canvas drag."""
+    global acc_x, acc_y, btn_left, mouse_rel_x, mouse_rel_y, canvas_drag_active
+
+    try:
+        dev = InputDevice(path)
+        abs_info_x = dev.absinfo(ecodes.ABS_X)
+        abs_info_y = dev.absinfo(ecodes.ABS_Y)
+        tp_max_x = abs_info_x.maximum or 1572
+        tp_max_y = abs_info_y.maximum or 984
+    except Exception:
+        return
+
+    monitor = get_monitor_bounds()
+    scale_x = monitor['width'] / tp_max_x
+    scale_y = monitor['height'] / tp_max_y
+
+    prev_x = None
+    prev_y = None
+    cur_x = None
+    cur_y = None
+    finger_down = False
+
+    try:
+        for event in dev.read_loop():
+            if event.type == ecodes.EV_KEY:
+                if event.code == ecodes.BTN_LEFT:
+                    if event.value == 1:
+                        with lock:
+                            can_start = super_pressed and not alt_pressed and not ctrl_pressed
+                        starts_on_background = can_start and pointer_is_on_workspace_background()
+                        with lock:
+                            btn_left = True
+                            canvas_drag_active = starts_on_background
+                            acc_x = 0.0
+                            acc_y = 0.0
+                    elif event.value == 0:
+                        with lock:
+                            btn_left = False
+                            canvas_drag_active = False
+                            acc_x = 0.0
+                            acc_y = 0.0
+                elif event.code == ecodes.BTN_TOUCH:
+                    finger_down = bool(event.value)
+                    if not finger_down:
+                        prev_x = None
+                        prev_y = None
+
+            elif event.type == ecodes.EV_ABS:
+                if event.code == ecodes.ABS_X:
+                    cur_x = event.value
+                elif event.code == ecodes.ABS_Y:
+                    cur_y = event.value
+
+            elif event.type == ecodes.EV_SYN and event.code == ecodes.SYN_REPORT:
+                if not finger_down or cur_x is None or cur_y is None:
+                    prev_x = cur_x
+                    prev_y = cur_y
+                    continue
+
+                if prev_x is not None and prev_y is not None:
+                    raw_dx = cur_x - prev_x
+                    raw_dy = cur_y - prev_y
+                    dx = raw_dx * scale_x * speed
+                    dy = raw_dy * scale_y * speed
+
+                    with lock:
+                        mouse_rel_x += int(raw_dx * scale_x)
+                        mouse_rel_y += int(raw_dy * scale_y)
+                        if canvas_drag_active and super_pressed and btn_left:
+                            sign = -1 if read_inverted() else 1
+                            acc_x += dx * sign
+                            acc_y += dy * sign
+
+                prev_x = cur_x
+                prev_y = cur_y
+
+    except Exception:
+        pass
+    finally:
+        try:
+            dev.close()
+        except Exception:
+            pass
+        with lock:
+            btn_left = False
+            canvas_drag_active = False
+            acc_x = 0.0
+            acc_y = 0.0
 
 _active_kbd_threads = {}
 _active_mouse_threads = {}
@@ -490,7 +593,7 @@ def device_manager():
 
     while True:
         try:
-            keyboards, mice = scan_devices()
+            keyboards, mice, touchpads = scan_devices()
 
             for path in keyboards:
                 t = _active_kbd_threads.get(path)
@@ -507,6 +610,16 @@ def device_manager():
                     nt.start()
                     _active_mouse_threads[path] = nt
                     print(f"[+] Mouse detectado: {path}", flush=True)
+
+             
+            for path in touchpads:
+                t = _active_mouse_threads.get(path)
+                if t is None or not t.is_alive():
+                    nt = threading.Thread(target=touchpad_reader_device, args=(path,), daemon=True)
+                    nt.start()
+                    _active_mouse_threads[path] = nt
+                    print(f"[+] Touchpad detectado: {path}", flush=True)
+                  
         except Exception as e:
             print(f"Error en device_manager: {e}", flush=True)
 
