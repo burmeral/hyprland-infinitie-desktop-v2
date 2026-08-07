@@ -365,14 +365,26 @@ def classify_device(path):
 
 def scan_devices():
     keyboards, mice, touchpads = [], [], []
+    phys_map = {}
     for path in list_devices():
+        try:
+            dev = InputDevice(path)
+            phys = dev.phys
+            dev.close()
+        except Exception:
+            phys = None
         kind = classify_device(path)
-        if kind == 'mouse':
-            mice.append(path)
+        if kind == 'touchpad':
+            touchpads.append(path)
+            if phys:
+                phys_map[phys] = 'touchpad'
+        elif kind == 'mouse':
+            mice.append((path, phys))
         elif kind == 'keyboard':
             keyboards.append(path)
-        elif kind == 'touchpad':
-            touchpads.append(path)
+
+    # Filter out mice that share a physical path with a touchpad
+    mice = [path for path, phys in mice if phys not in phys_map]
     return keyboards, mice, touchpads
 
 
