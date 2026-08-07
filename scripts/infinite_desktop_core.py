@@ -327,9 +327,9 @@ def classify_device(path):
     except Exception:
         return None
 
-    keys = {code for code, *_ in caps.get(ecodes.EV_KEY, [])}
-    rels = {code for code, *_ in caps.get(ecodes.EV_REL, [])}
-    abss = {code for code, *_ in caps.get(ecodes.EV_ABS, [])}
+    keys = set(caps.get(ecodes.EV_KEY, []))
+    rels = set(caps.get(ecodes.EV_REL, []))
+    abss = {code for code, _ in caps.get(ecodes.EV_ABS, [])}
 
     is_mouse = (ecodes.REL_X in rels and ecodes.REL_Y in rels and ecodes.BTN_LEFT in keys)
     if is_mouse:
