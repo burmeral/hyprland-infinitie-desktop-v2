@@ -323,6 +323,7 @@ def classify_device(path):
     try:
         dev = InputDevice(path)
         caps = dev.capabilities()
+        name = dev.name
         dev.close()
     except Exception:
         return None
@@ -330,6 +331,10 @@ def classify_device(path):
     keys = set(caps.get(ecodes.EV_KEY, []))
     rels = set(caps.get(ecodes.EV_REL, []))
     abss = {code for code, _ in caps.get(ecodes.EV_ABS, [])}
+
+    # Name-based touchpad check takes priority over generic mouse check
+    if "touchpad" in name.lower() and ecodes.BTN_LEFT in keys:
+        return 'touchpad'
 
     is_mouse = (ecodes.REL_X in rels and ecodes.REL_Y in rels and ecodes.BTN_LEFT in keys)
     if is_mouse:
@@ -339,7 +344,7 @@ def classify_device(path):
         ecodes.ABS_X in abss and ecodes.ABS_Y in abss
         and ecodes.BTN_TOUCH in keys
         and ecodes.BTN_LEFT in keys
-        and ecodes.REL_X not in rels  # exclude mice that also report ABS
+        and ecodes.REL_X not in rels 
     )
   
     if is_touchpad:
@@ -491,10 +496,10 @@ def touchpad_reader_device(path):
 
     try:
         dev = InputDevice(path)
-        abs_info_x = dev.absinfo(ecodes.ABS_X)
-        abs_info_y = dev.absinfo(ecodes.ABS_Y)
-        tp_max_x = abs_info_x.maximum or 1572
-        tp_max_y = abs_info_y.maximum or 984
+        dev.grab()
+        abs_info = dict(dev.capabilities().get(ecodes.EV_ABS, []))
+        tp_max_x = abs_info[ecodes.ABS_X].maximum if ecodes.ABS_X in abs_info else 1572
+        tp_max_y = abs_info[ecodes.ABS_Y].maximum if ecodes.ABS_Y in abs_info else 984
     except Exception:
         return
 
