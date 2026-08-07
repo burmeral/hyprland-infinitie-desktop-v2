@@ -341,10 +341,9 @@ def classify_device(path):
         return 'mouse'
   
     is_touchpad = (
-        ecodes.ABS_X in abss and ecodes.ABS_Y in abss
+        ecodes.ABS_MT_SLOT in abss
         and ecodes.BTN_TOUCH in keys
         and ecodes.BTN_LEFT in keys
-        and ecodes.REL_X not in rels 
     )
   
     if is_touchpad:
