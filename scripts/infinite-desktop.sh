@@ -115,4 +115,4 @@ if [ "$KBD_DEV" = "$MOUSE_DEV" ]; then
     exit 1
 fi
 
-exec python3 "$SCRIPT_DIR/infinite_desktop_core.py" "$KBD_DEV" "$MOUSE_DEV" "$SPEED"
+exec python3 "$SCRIPT_DIR/infinite_desktop_core.py" "$SPEED"
